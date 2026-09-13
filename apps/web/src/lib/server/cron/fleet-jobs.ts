@@ -163,6 +163,10 @@ export async function runStatusMaintenanceSweep(): Promise<void> {
  * stops two replicas from both enumerating the fleet at once.
  */
 export async function runFleetMigratorPass(): Promise<void> {
+  const { config } = await import('@/lib/server/config')
+  // Single-workspace installs have no control-plane registry to reconcile.
+  if (!config.isPooledTenancy) return
+
   const { withSweepLock } = await import('@/lib/server/sweep-lock')
   await withSweepLock('fleet_migrator', ONE_HOUR, async () => {
     const [{ enrolActiveWorkspaces, runReconcilePass }, { hostname }, { randomUUID }] =

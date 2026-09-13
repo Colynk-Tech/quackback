@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const serverDir = join(here, '..', '..')
@@ -25,6 +25,11 @@ const serverDir = join(here, '..', '..')
 function read(rel: string): string {
   return readFileSync(join(serverDir, rel), 'utf8')
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.resetModules()
+})
 
 /** Every `withSweepLock('<name>', …)` call in a file. */
 function sweepLockNames(source: string): Set<string> {
@@ -97,6 +102,16 @@ describe('the worker arms the sweep schedule under either tenancy mode', () => {
     expect(fn).not.toContain('startRelayTier')
     expect(scheduleStart).toBeGreaterThan(jobWorker)
     expect(fn).not.toMatch(/if\s*\(\s*config\.isPooledTenancy\s*\)/)
+  })
+
+  it('makes the control-plane fleet migrator a no-op in single-workspace mode', async () => {
+    vi.stubEnv('BASE_URL', 'http://localhost:3000')
+    vi.stubEnv('SECRET_KEY', 'a'.repeat(64))
+    vi.stubEnv('DATABASE_URL', 'postgresql://u@localhost:5432/quackback')
+    vi.stubEnv('QUACKBACK_TENANCY', 'single')
+
+    const { runFleetMigratorPass } = await import('@/lib/server/cron/fleet-jobs')
+    await expect(runFleetMigratorPass()).resolves.toBeUndefined()
   })
 })
 
