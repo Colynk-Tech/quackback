@@ -13,10 +13,10 @@
 # Quick start:
 #   git clone https://github.com/Colynk-Tech/quackback.git && cd quackback
 #   cp .env.prod.example .env      # then fill in every value
-#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml up -d --build
 #
 # Migrations run automatically on app startup. Upgrade with:
-#   git pull && docker compose -f docker-compose.prod.yml pull && \
+#   git pull && docker compose -f docker-compose.prod.yml build --pull app && \
 #     docker compose -f docker-compose.prod.yml up -d
 # (back up your database first — see the self-hosting docs).
 #
@@ -26,7 +26,12 @@
 
 services:
   app:
-    image: ghcr.io/quackbackio/quackback:${QUACKBACK_TAG:-latest}
+    # Build the checked-out source. The published upstream image can lag behind
+    # fixes in this repository, including the corrected TanStack server entry.
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: quackback-local:latest
     container_name: quackback-app
     restart: unless-stopped
     init: true
