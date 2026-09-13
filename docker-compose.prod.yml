@@ -1,17 +1,17 @@
 # ============================================================================
 # Quackback — production stack (self-hosting)
 # ============================================================================
-# A self-contained, single-host deployment: the Quackback app plus its
-# datastores (PostgreSQL + MinIO). Unlike the dev docker-compose.yml,
+# A single-host deployment: the Quackback app plus PostgreSQL and Dragonfly.
+# Uploads use an external Amazon S3 bucket. Unlike the dev docker-compose.yml,
 # this file is safe to run on a server:
 #   - the app is the ONLY service with a published host port
 #   - datastores are reachable only on the internal compose network
 #   - every secret is required via ${VAR:?...} — the stack refuses to start
 #     half-configured instead of falling back to insecure defaults
-#   - the upload bucket is PRIVATE (served through the app at /api/storage)
+#   - the S3 bucket can remain private (served through the app storage route)
 #
 # Quick start:
-#   git clone https://github.com/QuackbackIO/quackback.git && cd quackback
+#   git clone https://github.com/Colynk-Tech/quackback.git && cd quackback
 #   cp .env.prod.example .env      # then fill in every value
 #   docker compose -f docker-compose.prod.yml up -d
 #
@@ -20,10 +20,8 @@
 #     docker compose -f docker-compose.prod.yml up -d
 # (back up your database first — see the self-hosting docs).
 #
-# For an external Postgres / S3 instead of the bundled datastores,
-# point the URLs at your managed services and remove the services you no longer
-# need. To scale beyond one host, use managed datastores + the `docker run`
-# path; this compose is single-node by design.
+# The S3 bucket must already exist. To scale beyond one host, use managed
+# datastores and the `docker run` path; this compose is single-node by design.
 # ============================================================================
 
 services:
@@ -39,19 +37,23 @@ services:
     environment:
       QUACKBACK_BUILD: '0'
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-quackback}
-      S3_ENDPOINT: ${S3_ENDPOINT}
-      S3_BUCKET: ${S3_BUCKET:-quackback}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-      S3_FORCE_PATH_STYLE: 'false'
-      S3_REGION: ${S3_REGION}
-      # MinIO has no public port, so the browser can't reach it directly:
-      # serve uploads through the app's /api/storage proxy.
-      S3_PUBLIC_URL: ${S3_PUBLIC_URL}
+      # The published image still uses Redis-compatible storage for queues.
+      # Newer builds that have migrated queues to PostgreSQL ignore this value.
+      REDIS_URL: redis://dragonfly:6379
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      S3_REGION: ${S3_REGION:?set S3_REGION in .env}
+      S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+      S3_PROXY: ${S3_PROXY:-false}
     ports:
       - '${APP_PORT:-3000}:3000'
     depends_on:
       postgres:
+        condition: service_healthy
+      dragonfly:
         condition: service_healthy
     healthcheck:
       # Use Bun (always in the image) so we don't depend on curl/wget. The
@@ -92,5 +94,22 @@ services:
       timeout: 5s
       retries: 5
 
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
+    container_name: quackback-dragonfly
+    restart: unless-stopped
+    # BullMQ requires these flags for Lua-script and hashtag-key compatibility.
+    command: dragonfly --cluster_mode=emulated --lock_on_hashtags
+    volumes:
+      - dragonfly_data:/data
+    ulimits:
+      memlock: -1
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  dragonfly_data:
