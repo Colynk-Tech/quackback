@@ -35,7 +35,8 @@ services:
     # Internal wiring is fixed here (derived from the secrets in .env) so a
     # self-hoster can't point these at the wrong host — these override env_file.
     environment:
-      QUACKBACK_BUILD: '0'
+      BASE_URL: ${BASE_URL:?set BASE_URL in .env}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-quackback}
       # The published image still uses Redis-compatible storage for queues.
       # Newer builds that have migrated queues to PostgreSQL ignore this value.
